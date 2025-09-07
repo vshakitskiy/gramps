@@ -499,46 +499,48 @@ pub fn aggregate_frames(
     [], _ -> Ok(list.reverse(joined))
 
     // Complete standalone frame
-    [Complete(frame), ..rest], None -> {
-      case frame {
-        Data(CompressedTextFrame(data)) -> {
-          // Complete compressed frame - decompress it
-          case context {
-            Some(ctx) -> {
-              let decompressed = compression.inflate(ctx, data)
-              case bit_array.is_utf8(decompressed) {
-                True -> {
-                  let final_frame = Data(TextFrame(decompressed))
-                  aggregate_frames(rest, None, [final_frame, ..joined], context)
-                }
-                False -> Error(Nil)
-              }
-            }
-            None -> Error(Nil)
-          }
-        }
-        Data(CompressedBinaryFrame(data)) -> {
-          case context {
-            Some(ctx) -> {
-              let decompressed = compression.inflate(ctx, data)
-              let final_frame = Data(BinaryFrame(decompressed))
+    [Complete(Data(CompressedTextFrame(data))), ..rest], None -> {
+      case context {
+        Some(ctx) -> {
+          let decompressed = compression.inflate(ctx, data)
+          case bit_array.is_utf8(decompressed) {
+            True -> {
+              let final_frame = Data(TextFrame(decompressed))
               aggregate_frames(rest, None, [final_frame, ..joined], context)
             }
-            None -> Error(Nil)
-          }
-        }
-        Data(TextFrame(data)) -> {
-          case bit_array.is_utf8(data) {
-            True -> aggregate_frames(rest, None, [frame, ..joined], context)
             False -> Error(Nil)
           }
         }
-        Data(BinaryFrame(_)) ->
-          aggregate_frames(rest, None, [frame, ..joined], context)
-        Control(_) -> aggregate_frames(rest, None, [frame, ..joined], context)
-        Continuation(..) -> Error(Nil)
+        None -> Error(Nil)
       }
     }
+    [Complete(Data(CompressedBinaryFrame(data))), ..rest], None -> {
+      case context {
+        Some(ctx) -> {
+          let decompressed = compression.inflate(ctx, data)
+          let final_frame = Data(BinaryFrame(decompressed))
+          aggregate_frames(rest, None, [final_frame, ..joined], context)
+        }
+        None -> Error(Nil)
+      }
+    }
+    [Complete(Data(TextFrame(data))), ..rest], None -> {
+      case bit_array.is_utf8(data) {
+        True ->
+          aggregate_frames(
+            rest,
+            None,
+            [Data(TextFrame(data)), ..joined],
+            context,
+          )
+        False -> Error(Nil)
+      }
+    }
+    [Complete(Data(BinaryFrame(data))), ..rest], None ->
+      aggregate_frames(rest, None, [Data(BinaryFrame(data)), ..joined], context)
+    [Complete(Continuation(..)), ..], None -> Error(Nil)
+    [Complete(frame), ..rest], None ->
+      aggregate_frames(rest, None, [frame, ..joined], context)
 
     // Incomplete frame starting fragmentation
     [Incomplete(frame), ..rest], None -> {
