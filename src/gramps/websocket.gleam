@@ -177,11 +177,9 @@ pub fn decode_frame(
       case opcode {
         0 -> Ok(Continuation(payload_size, data))
         1 -> {
-          case complete == 1, compressed {
-            True, True -> Ok(Data(CompressedTextFrame(data)))
-            True, False -> Ok(Data(TextFrame(data)))
-            False, True -> Ok(Data(CompressedTextFrame(data)))
-            False, False -> Ok(Data(TextFrame(data)))
+          case compressed {
+            True -> Ok(Data(CompressedTextFrame(data)))
+            False -> Ok(Data(TextFrame(data)))
           }
         }
         2 -> {
@@ -194,22 +192,20 @@ pub fn decode_frame(
           case data {
             <<>> -> Ok(Control(CloseFrame(NotProvided)))
             <<code:16, rest:bits>> -> {
-              case is_valid_close_code(code), bit_array.is_utf8(rest) {
-                True, True -> {
-                  case code {
-                    1000 -> Ok(Control(CloseFrame(Normal(rest))))
-                    1001 -> Ok(Control(CloseFrame(GoingAway(rest))))
-                    1002 -> Ok(Control(CloseFrame(ProtocolError(rest))))
-                    1003 -> Ok(Control(CloseFrame(UnexpectedDataType(rest))))
-                    1007 -> Ok(Control(CloseFrame(InconsistentDataType(rest))))
-                    1008 -> Ok(Control(CloseFrame(PolicyViolation(rest))))
-                    1009 -> Ok(Control(CloseFrame(MessageTooBig(rest))))
-                    1010 -> Ok(Control(CloseFrame(MissingExtensions(rest))))
-                    1011 -> Ok(Control(CloseFrame(UnexpectedCondition(rest))))
-                    _ -> Ok(Control(CloseFrame(CustomCloseReason(code, rest))))
-                  }
-                }
-                _, _ -> Error(InvalidFrame)
+              let valid = bit_array.is_utf8(rest) && is_valid_close_code(code)
+              use <- bool.guard(when: !valid, return: Error(InvalidFrame))
+
+              case code {
+                1000 -> Ok(Control(CloseFrame(Normal(rest))))
+                1001 -> Ok(Control(CloseFrame(GoingAway(rest))))
+                1002 -> Ok(Control(CloseFrame(ProtocolError(rest))))
+                1003 -> Ok(Control(CloseFrame(UnexpectedDataType(rest))))
+                1007 -> Ok(Control(CloseFrame(InconsistentDataType(rest))))
+                1008 -> Ok(Control(CloseFrame(PolicyViolation(rest))))
+                1009 -> Ok(Control(CloseFrame(MessageTooBig(rest))))
+                1010 -> Ok(Control(CloseFrame(MissingExtensions(rest))))
+                1011 -> Ok(Control(CloseFrame(UnexpectedCondition(rest))))
+                _ -> Ok(Control(CloseFrame(CustomCloseReason(code, rest))))
               }
             }
             _ -> Error(InvalidFrame)
