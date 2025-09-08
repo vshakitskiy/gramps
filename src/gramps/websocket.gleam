@@ -10,12 +10,33 @@ import gramps/websocket/compression.{
   type Context, type ContextTakeover, ContextTakeover,
 }
 
-pub type DataFrame {
+pub opaque type DataFrame {
   TextFrame(payload: BitArray)
   BinaryFrame(payload: BitArray)
 
   CompressedTextFrame(payload: BitArray)
   CompressedBinaryFrame(payload: BitArray)
+}
+
+pub fn text_frame(payload: BitArray) -> DataFrame {
+  TextFrame(payload)
+}
+
+pub fn binary_frame(payload: BitArray) -> DataFrame {
+  BinaryFrame(payload)
+}
+
+pub fn match_data_frame(
+  data_frame: DataFrame,
+  on_text on_text: fn(BitArray, Bool) -> a,
+  on_binary on_binary: fn(BitArray, Bool) -> a,
+) -> a {
+  case data_frame {
+    TextFrame(payload) -> on_text(payload, False)
+    CompressedTextFrame(payload) -> on_text(payload, True)
+    BinaryFrame(payload) -> on_binary(payload, False)
+    CompressedBinaryFrame(payload) -> on_binary(payload, True)
+  }
 }
 
 pub type CloseReason {
@@ -281,15 +302,15 @@ fn encode_frame(
   mask: Option(BitArray),
 ) -> BytesTree {
   case frame {
-    Data(TextFrame(payload)) -> {
+    Data(TextFrame(payload)) | Data(CompressedTextFrame(payload)) -> {
       let payload_length = bit_array.byte_size(payload)
       make_frame(1, payload_length, payload, compressed, mask)
     }
 
-    Data(CompressedTextFrame(_)) ->
-      panic as "CompressedTextFrame should not be used by user"
-    Data(CompressedBinaryFrame(_)) ->
-      panic as "CompressedBinaryFrame should not be used by user"
+    Data(BinaryFrame(payload)) | Data(CompressedBinaryFrame(payload)) -> {
+      let payload_length = bit_array.byte_size(payload)
+      make_frame(2, payload_length, payload, compressed, mask)
+    }
 
     Control(CloseFrame(reason)) -> {
       let #(payload_length, payload) = case reason {
@@ -341,10 +362,6 @@ fn encode_frame(
         }
       }
       make_frame(8, payload_length, apply_mask(payload, mask), compressed, mask)
-    }
-    Data(BinaryFrame(payload)) -> {
-      let payload_length = bit_array.byte_size(payload)
-      make_frame(2, payload_length, payload, compressed, mask)
     }
     Control(PongFrame(payload)) -> {
       let payload_length = bit_array.byte_size(payload)
