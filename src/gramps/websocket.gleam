@@ -213,8 +213,10 @@ pub fn decode_frame(
           case data {
             <<>> -> Ok(Control(CloseFrame(NotProvided)))
             <<code:16, rest:bits>> -> {
-              let valid = bit_array.is_utf8(rest) && is_valid_close_code(code)
-              use <- bool.guard(when: !valid, return: Error(InvalidFrame))
+              use <- bool.guard(
+                when: !bit_array.is_utf8(rest),
+                return: Error(InvalidFrame),
+              )
 
               case code {
                 1000 -> Ok(Control(CloseFrame(Normal(rest))))
@@ -226,7 +228,9 @@ pub fn decode_frame(
                 1009 -> Ok(Control(CloseFrame(MessageTooBig(rest))))
                 1010 -> Ok(Control(CloseFrame(MissingExtensions(rest))))
                 1011 -> Ok(Control(CloseFrame(UnexpectedCondition(rest))))
-                _ -> Ok(Control(CloseFrame(CustomCloseReason(code, rest))))
+                code if code >= 3000 && code <= 4999 ->
+                  Ok(Control(CloseFrame(CustomCloseReason(code, rest))))
+                _ -> Error(InvalidFrame)
               }
             }
             _ -> Error(InvalidFrame)
@@ -245,14 +249,6 @@ pub fn decode_frame(
       })
     }
     _ -> Error(NeedMoreData(message))
-  }
-}
-
-fn is_valid_close_code(code: Int) -> Bool {
-  case code {
-    1000 | 1001 | 1002 | 1003 | 1007 | 1008 | 1009 | 1010 | 1011 -> True
-    code if code >= 3000 && code <= 4999 -> True
-    _ -> False
   }
 }
 
